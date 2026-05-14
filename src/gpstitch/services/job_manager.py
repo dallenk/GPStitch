@@ -38,7 +38,7 @@ class JobManager:
         """Load persisted jobs from disk."""
         for job_file in self.state_dir.glob("*.json"):
             try:
-                job_data = json.loads(job_file.read_text())
+                job_data = json.loads(job_file.read_text(encoding="utf-8"))
                 job = Job.model_validate(job_data)
                 self._jobs[job.id] = job
 
@@ -64,7 +64,7 @@ class JobManager:
     def _persist_job(self, job: Job):
         """Persist job state to disk."""
         job_file = self._job_file_path(job.id)
-        job_file.write_text(job.model_dump_json(indent=2))
+        job_file.write_text(job.model_dump_json(indent=2), encoding="utf-8")
 
     async def create_job(self, config: RenderJobConfig) -> Job:
         """Create a new render job."""

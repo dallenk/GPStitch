@@ -41,7 +41,7 @@ class FileManager:
 
         # Store session metadata
         metadata_file = session_dir / ".metadata"
-        metadata_file.write_text(str(time.time()))
+        metadata_file.write_text(str(time.time()), encoding="utf-8")
 
         # Initialize empty files list
         self._save_files_metadata(session_id, [])
@@ -389,7 +389,7 @@ class FileManager:
 
         files_file = session_dir / self.FILES_METADATA
         files_data = [f.model_dump() for f in files]
-        files_file.write_text(json.dumps(files_data, indent=2))
+        files_file.write_text(json.dumps(files_data, indent=2), encoding="utf-8")
 
     def _load_files_metadata(self, session_id: str) -> list[FileInfo]:
         """Load files metadata from session."""
@@ -403,7 +403,7 @@ class FileManager:
             return []
 
         try:
-            data = json.loads(files_file.read_text())
+            data = json.loads(files_file.read_text(encoding="utf-8"))
             return [FileInfo(**f) for f in data]
         except (json.JSONDecodeError, ValueError):
             return []

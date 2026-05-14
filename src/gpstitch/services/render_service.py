@@ -357,7 +357,7 @@ class RenderService:
         needs_cairo = False
         if layout_xml:
             with contextlib.suppress(OSError):
-                needs_cairo = "cairo" in Path(layout_xml).read_text().lower()
+                needs_cairo = "cairo" in Path(layout_xml).read_text(encoding="utf-8").lower()
         else:
             needs_cairo = _layout_requires_cairo(layout_name)
 

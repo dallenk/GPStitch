@@ -329,6 +329,42 @@ class TestJobManagerPersistence:
         assert restored is not None
         assert restored.config.session_id == sample_job_config.session_id
 
+    async def test_persist_load_handles_non_ascii_log_lines(self, clean_job_manager, sample_job_config, monkeypatch):
+        """Non-ASCII log lines (e.g. pillarbox '→') must round-trip on Windows-like locales.
+
+        Reproduces the cp1252 UnicodeEncodeError seen on Windows by forcing Path.write_text /
+        Path.read_text to default to cp1252 when encoding is not explicitly passed. The fix
+        is to pass encoding='utf-8' in _persist_job / _load_jobs.
+        """
+        from pathlib import Path as _P
+
+        from gpstitch.services.job_manager import JobManager
+
+        orig_wt = _P.write_text
+        orig_rt = _P.read_text
+
+        def wt(self, data, encoding=None, errors=None, newline=None):
+            return orig_wt(self, data, encoding=encoding or "cp1252", errors=errors, newline=newline)
+
+        def rt(self, encoding=None, errors=None, newline=None):
+            return orig_rt(self, encoding=encoding or "cp1252", errors=errors, newline=newline)
+
+        monkeypatch.setattr(_P, "write_text", wt)
+        monkeypatch.setattr(_P, "read_text", rt)
+
+        job = await clean_job_manager.create_job(sample_job_config)
+        # The exact log line emitted by render_service._create_pillarboxed_video.
+        job.log_lines.append("Video: 3840x2880 → Canvas: 3840x2880")
+
+        # Without the fix this raises UnicodeEncodeError under the cp1252 simulation.
+        clean_job_manager._persist_job(job)
+
+        # And reload must preserve the arrow.
+        new_mgr = JobManager(state_dir=clean_job_manager.state_dir)
+        restored = await new_mgr.get_job(job.id)
+        assert restored is not None
+        assert any("→" in line for line in restored.log_lines)
+
     async def test_running_job_marked_failed_on_restart(self, clean_job_manager, sample_job_config, temp_dir):
         """Running jobs should be marked as failed on restart."""
         from gpstitch.services.job_manager import JobManager
