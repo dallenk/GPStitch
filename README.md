@@ -27,6 +27,9 @@ powerful [gopro-overlay](https://github.com/time4tea/gopro-dashboard-overlay) li
 - **Background Jobs** — Render videos in the background with progress tracking
 - **Overlay-Only Mode** — Render transparent telemetry overlays (no video) for compositing in Final Cut Pro, DaVinci
   Resolve, etc.
+- **Custom Encoding Profiles** — Use your own ffmpeg profiles from `~/.gopro-graphics/ffmpeg-profiles.json` alongside
+  the
+  built-in ones
 
 ## Screenshots
 
@@ -90,6 +93,15 @@ video editor (Final Cut Pro, DaVinci Resolve, Premiere Pro, etc.).
     - **VP9** — Good quality with alpha channel, smaller files
     - **VP8** — Alpha channel support, widest browser compatibility
 4. Render — the output is a video with a transparent background ready for compositing
+
+### Encoding Profiles
+
+The **FFmpeg Profile** selector (Config panel) lists the built-in profiles plus any **user-defined profiles** you keep
+in
+`~/.gopro-graphics/ffmpeg-profiles.json` — the same file the underlying `gopro-dashboard.py` reads (see the
+[ffmpeg-profiles reference](https://github.com/time4tea/gopro-dashboard-overlay/tree/main/docs/bin#ffmpeg-profiles) for
+the format). They appear under a **Custom** group; override the directory with
+`GPSTITCH_GOPRO_CONFIG_DIR`.
 
 ## Command-Line Rendering
 
@@ -229,14 +241,15 @@ The UI shows the base timestamp and the adjusted result so you can see exactly h
 
 Environment variables (prefix: `GPSTITCH_`):
 
-| Variable               | Default                 | Description                              |
-|------------------------|-------------------------|------------------------------------------|
-| `HOST`                 | `0.0.0.0`               | Server host                              |
-| `PORT`                 | `8000`                  | Server port                              |
-| `LOCAL_MODE`           | `true`                  | Use local file paths instead of uploads  |
-| `TEMPLATES_DIR`        | `~/.gpstitch/templates` | Custom templates directory               |
-| `ENABLE_GOPRO_PATCHES` | `true`                  | Enable runtime patches for gopro-overlay |
-| `USE_WRAPPER_SCRIPT`   | `true`                  | Use wrapper script for rendering         |
+| Variable               | Default                 | Description                                            |
+|------------------------|-------------------------|--------------------------------------------------------|
+| `HOST`                 | `0.0.0.0`               | Server host                                            |
+| `PORT`                 | `8000`                  | Server port                                            |
+| `LOCAL_MODE`           | `true`                  | Use local file paths instead of uploads                |
+| `TEMPLATES_DIR`        | `~/.gpstitch/templates` | Custom templates directory                             |
+| `GOPRO_CONFIG_DIR`     | `~/.gopro-graphics`     | gopro-overlay config dir (user `ffmpeg-profiles.json`) |
+| `ENABLE_GOPRO_PATCHES` | `true`                  | Enable runtime patches for gopro-overlay               |
+| `USE_WRAPPER_SCRIPT`   | `true`                  | Use wrapper script for rendering                       |
 
 You can also use a `.env` file in the project root.
 

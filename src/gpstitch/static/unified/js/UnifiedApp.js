@@ -123,13 +123,58 @@ class UnifiedApp {
         // Store profiles data for hint display
         this._ffmpegProfiles = profilesData.profiles;
 
-        this._populateSelect(this.ffmpegProfileSelect, profilesData.profiles.map(p => ({
-            value: p.name,
-            label: p.display_name
-        })), this.state.quickConfig.ffmpegProfile);
+        this._populateFfmpegProfileSelect(profilesData.profiles, this.state.quickConfig.ffmpegProfile);
 
         // Show initial hint
         this._updateFfmpegProfileHint(this.state.quickConfig.ffmpegProfile);
+    }
+
+    /**
+     * Populate the FFmpeg profile <select>.
+     *
+     * Built-in and user-defined profiles are split into <optgroup>s, but only
+     * when at least one user-defined profile exists — otherwise the list stays
+     * flat, preserving the original look for users without custom profiles.
+     */
+    _populateFfmpegProfileSelect(profiles, selectedValue) {
+        const select = this.ffmpegProfileSelect;
+        select.innerHTML = '';
+
+        const addOption = (parent, profile) => {
+            parent.appendChild(this._makeOption(profile.name, profile.display_name, {
+                selected: Boolean(selectedValue) && profile.name === selectedValue,
+                disabled: Boolean(profile.disabled),
+            }));
+        };
+
+        const addGroup = (label, items) => {
+            if (items.length === 0) return;
+            const group = document.createElement('optgroup');
+            group.label = label;
+            for (const profile of items) addOption(group, profile);
+            select.appendChild(group);
+        };
+
+        const hasCustom = profiles.some(p => p.is_builtin === false);
+        if (!hasCustom) {
+            for (const profile of profiles) addOption(select, profile);
+        } else {
+            // "Default" (empty name) stays as a leading top-level option.
+            const defaultProfile = profiles.find(p => p.name === '');
+            if (defaultProfile) addOption(select, defaultProfile);
+
+            addGroup('Built-in', profiles.filter(p => p.is_builtin && p.name !== ''));
+            addGroup('Custom', profiles.filter(p => p.is_builtin === false));
+        }
+
+        // If the previously-selected profile is no longer offered (e.g. a custom
+        // profile was removed from ffmpeg-profiles.json), reconcile state to the
+        // option the <select> actually shows, so render won't submit a missing
+        // profile that gopro-dashboard would reject.
+        if (selectedValue && !profiles.some(p => p.name === selectedValue)) {
+            this.state.updateQuickConfig({ ffmpegProfile: select.value });
+            this._updateFfmpegProfileHint(select.value);
+        }
     }
 
     /**
@@ -171,19 +216,22 @@ class UnifiedApp {
         }
     }
 
+    _makeOption(value, label, { selected = false, disabled = false } = {}) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        if (disabled) opt.disabled = true;
+        if (selected) opt.selected = true;
+        return opt;
+    }
+
     _populateSelect(select, options, defaultValue) {
         select.innerHTML = '';
         for (const option of options) {
-            const opt = document.createElement('option');
-            opt.value = option.value;
-            opt.textContent = option.label;
-            if (option.disabled) {
-                opt.disabled = true;
-            }
-            if (defaultValue && option.value === defaultValue) {
-                opt.selected = true;
-            }
-            select.appendChild(opt);
+            select.appendChild(this._makeOption(option.value, option.label, {
+                selected: Boolean(defaultValue) && option.value === defaultValue,
+                disabled: Boolean(option.disabled),
+            }));
         }
     }
 

@@ -265,6 +265,91 @@ class TestAlternateLayoutRender:
             assert int(video_stream["width"]) > 0
             assert int(video_stream["height"]) > 0
 
+    @pytest.mark.slow
+    def test_full_render_with_user_defined_profile(
+        self, integration_test_video, clean_file_manager, monkeypatch, tmp_path
+    ):
+        """End-to-end: a user-defined ffmpeg profile from a custom config dir is
+        resolved by the render subprocess and actually applied to the output.
+
+        This exercises the whole chain for issue #17: a profile defined only in
+        <gopro_config_dir>/ffmpeg-profiles.json is passed via --profile, the
+        custom dir is passed via --config-dir, gopro-dashboard resolves it, and
+        the chosen codec ends up in the output. mpeg4 is always available in
+        ffmpeg and differs from the default h264, so the output codec proves the
+        profile took effect (rather than silently falling back to the default).
+        """
+        import tempfile
+
+        from gpstitch.services import file_manager as fm_module
+        from gpstitch.services import renderer as renderer_module
+        from gpstitch.services.renderer import generate_cli_command
+
+        (tmp_path / "ffmpeg-profiles.json").write_text(
+            json.dumps({"test_mpeg4": {"input": [], "output": ["-vcodec", "mpeg4", "-q:v", "5"]}})
+        )
+        # Patch the settings object renderer actually reads (clean_file_manager's
+        # mock_settings swaps gpstitch.config.settings but not renderer's binding).
+        monkeypatch.setattr(renderer_module.settings, "gopro_config_dir", tmp_path)
+
+        session_id = clean_file_manager.create_local_session()
+        clean_file_manager.add_file(
+            session_id=session_id,
+            filename=integration_test_video.name,
+            file_path=integration_test_video,
+            file_type="video",
+            role=FileRole.PRIMARY,
+        )
+        monkeypatch.setattr(fm_module, "file_manager", clean_file_manager)
+
+        with tempfile.TemporaryDirectory(prefix="gpstitch_test_") as tmpdir:
+            output_file = Path(tmpdir) / "user_profile_output.mp4"
+
+            cmd, _ = generate_cli_command(
+                session_id=session_id,
+                output_file=str(output_file),
+                layout="default-1920x1080",
+                ffmpeg_profile="test_mpeg4",
+            )
+
+            assert "--profile test_mpeg4" in cmd
+            assert f"--config-dir {shlex.quote(str(tmp_path))}" in cmd
+
+            from gpstitch.scripts import gopro_dashboard_wrapper
+
+            wrapper = Path(gopro_dashboard_wrapper.__file__)
+            args = shlex.split(cmd)
+            args[0] = str(wrapper)
+
+            result = subprocess.run(
+                [sys.executable, *args],
+                capture_output=True,
+                text=True,
+                timeout=300,
+            )
+
+            assert result.returncode == 0, (
+                f"Render with user-defined profile failed:\n{result.stderr[-2000:]}"
+            )
+            assert output_file.exists(), "Output file was not created"
+            assert output_file.stat().st_size > 0, "Output file is empty"
+
+            # Confirm the user-defined profile's codec was actually applied.
+            probe_result = subprocess.run(
+                ["ffprobe", "-hide_banner", "-print_format", "json", "-show_streams", str(output_file)],
+                capture_output=True,
+                text=True,
+            )
+            assert probe_result.returncode == 0
+            metadata = json.loads(probe_result.stdout)
+            video_stream = next(
+                (s for s in metadata.get("streams", []) if s["codec_type"] == "video"), None
+            )
+            assert video_stream is not None, "No video stream in output"
+            assert video_stream["codec_name"] == "mpeg4", (
+                f"Expected mpeg4 from user-defined profile, got {video_stream.get('codec_name')}"
+            )
+
 
 @pytest.mark.integration
 class TestZoneBarPositioning:
@@ -806,6 +891,49 @@ class TestRendererCLICommand:
 
         assert "--profile" in cmd
         assert "nvenc" in cmd
+
+    def test_generate_cli_command_config_dir(
+        self, clean_file_manager, integration_test_video, monkeypatch, tmp_path
+    ):
+        """A non-default gopro_config_dir is passed through as --config-dir."""
+        from pathlib import Path
+
+        from gpstitch.services import file_manager as fm_module
+        from gpstitch.services import renderer as renderer_module
+        from gpstitch.services.renderer import generate_cli_command
+
+        session_id = clean_file_manager.create_local_session()
+        clean_file_manager.add_file(
+            session_id=session_id,
+            filename=integration_test_video.name,
+            file_path=integration_test_video,
+            file_type="video",
+            role=FileRole.PRIMARY,
+        )
+        monkeypatch.setattr(fm_module, "file_manager", clean_file_manager)
+
+        # Patch the settings object renderer actually reads (clean_file_manager's
+        # mock_settings swaps gpstitch.config.settings but not renderer's binding).
+        # Default config dir -> no --config-dir flag (subprocess already uses it)
+        monkeypatch.setattr(renderer_module.settings, "gopro_config_dir", Path.home() / ".gopro-graphics")
+        cmd_default, _ = generate_cli_command(
+            session_id=session_id,
+            output_file="/tmp/output.mp4",
+            layout="default-1920x1080",
+            ffmpeg_profile="my_h265",
+        )
+        assert "--config-dir" not in cmd_default
+
+        # Custom config dir -> passed through so the subprocess resolves the same profiles
+        monkeypatch.setattr(renderer_module.settings, "gopro_config_dir", tmp_path)
+        cmd_custom, _ = generate_cli_command(
+            session_id=session_id,
+            output_file="/tmp/output.mp4",
+            layout="default-1920x1080",
+            ffmpeg_profile="my_h265",
+        )
+        assert "--config-dir" in cmd_custom
+        assert str(tmp_path) in cmd_custom
 
 
 @pytest.mark.integration

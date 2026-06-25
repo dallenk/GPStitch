@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     # Template storage directory
     templates_dir: Path = Path.home() / ".gpstitch" / "templates"
 
+    # gopro-overlay config directory (holds user-defined ffmpeg-profiles.json, etc.)
+    # Defaults to ~/.gopro-graphics — the same location gopro-dashboard.py reads from.
+    gopro_config_dir: Path = Path.home() / ".gopro-graphics"
+
     # Allowed file extensions
     allowed_extensions: set[str] = {".mp4", ".mov", ".gpx", ".fit", ".srt"}
 

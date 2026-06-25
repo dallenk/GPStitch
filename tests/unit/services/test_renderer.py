@@ -1,6 +1,7 @@
 """Unit tests for renderer - video canvas fitting and CLI command generation."""
 
 import datetime
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -8,10 +9,16 @@ import pytest
 from PIL import Image
 
 from gpstitch.services.renderer import (
+    _describe_user_profile,
+    _extension_for_output_args,
     _fit_video_to_canvas,
     _get_gps_time_range,
+    _load_user_ffmpeg_profiles,
     _resolve_time_alignment,
     _validate_creation_time,
+    _vcodec_from_output_args,
+    get_available_ffmpeg_profiles,
+    get_output_extension_for_profile,
 )
 
 
@@ -2055,3 +2062,232 @@ class TestWrapperArgsPreservedInCommandEndpoint:
             response = asyncio.run(generate_command(request))
 
         assert response.command == original_cmd
+
+
+class TestVcodecFromOutputArgs:
+    """Tests for _vcodec_from_output_args."""
+
+    def test_finds_vcodec_flag(self):
+        assert _vcodec_from_output_args(["-vcodec", "png"]) == "png"
+
+    def test_finds_c_v_flag(self):
+        assert _vcodec_from_output_args(["-b:v", "30M", "-c:v", "libx265"]) == "libx265"
+
+    def test_returns_none_when_absent(self):
+        assert _vcodec_from_output_args(["-b:v", "30M"]) is None
+
+    def test_returns_none_for_empty(self):
+        assert _vcodec_from_output_args([]) is None
+
+
+class TestExtensionForOutputArgs:
+    """Tests for _extension_for_output_args."""
+
+    def test_png_requires_mov(self):
+        assert _extension_for_output_args(["-vcodec", "png"]) == ".mov"
+
+    @pytest.mark.parametrize("codec", ["vp8", "vp9", "libvpx", "libvpx-vp9"])
+    def test_vpx_requires_webm(self, codec):
+        assert _extension_for_output_args(["-vcodec", codec]) == ".webm"
+
+    def test_h264_returns_none(self):
+        assert _extension_for_output_args(["-vcodec", "h264_nvenc", "-b:v", "25M"]) is None
+
+    def test_no_codec_returns_none(self):
+        assert _extension_for_output_args(["-b:v", "25M"]) is None
+
+    @pytest.mark.parametrize(
+        ("codec", "expected"),
+        [
+            ("prores_ks", ".mov"),
+            ("prores", ".mov"),
+            ("dnxhd", ".mov"),
+            ("dnxhr", ".mov"),
+            ("ffv1", ".mkv"),
+            ("gif", ".gif"),
+        ],
+    )
+    def test_extended_codecs(self, codec, expected):
+        assert _extension_for_output_args(["-vcodec", codec]) == expected
+
+    def test_explicit_format_flag_wins_over_codec(self):
+        # User forces a MOV container for H.264 via -f mov.
+        assert _extension_for_output_args(["-vcodec", "libx264", "-f", "mov"]) == ".mov"
+
+    @pytest.mark.parametrize(
+        ("fmt", "expected"),
+        [("mov", ".mov"), ("matroska", ".mkv"), ("webm", ".webm"), ("avi", ".avi"), ("mxf", ".mxf")],
+    )
+    def test_format_flag_mapping(self, fmt, expected):
+        assert _extension_for_output_args(["-f", fmt]) == expected
+
+    def test_unknown_format_falls_back_to_codec(self):
+        # Unknown -f value is ignored; codec inference still applies.
+        assert _extension_for_output_args(["-f", "weirdfmt", "-vcodec", "png"]) == ".mov"
+
+
+class TestDescribeUserProfile:
+    """Tests for _describe_user_profile."""
+
+    def test_includes_codec(self):
+        assert _describe_user_profile({"output": ["-vcodec", "hevc_videotoolbox"]}) == (
+            "Custom profile: hevc_videotoolbox"
+        )
+
+    def test_fallback_without_codec(self):
+        assert _describe_user_profile({"output": ["-b:v", "10M"]}) == "Custom profile (user-defined)"
+
+    def test_fallback_without_output(self):
+        assert _describe_user_profile({}) == "Custom profile (user-defined)"
+
+
+class TestLoadUserFfmpegProfiles:
+    """Tests for _load_user_ffmpeg_profiles."""
+
+    @pytest.fixture
+    def config_dir(self, tmp_path, monkeypatch):
+        """Point settings.gopro_config_dir at a temp dir for the duration of a test."""
+        from gpstitch.config import settings
+
+        monkeypatch.setattr(settings, "gopro_config_dir", tmp_path)
+        return tmp_path
+
+    def _write(self, config_dir, payload):
+        (config_dir / "ffmpeg-profiles.json").write_text(json.dumps(payload))
+
+    def test_missing_file_returns_empty(self, config_dir):
+        assert _load_user_ffmpeg_profiles() == {}
+
+    def test_valid_profiles_loaded(self, config_dir):
+        self._write(config_dir, {"my_h265": {"input": [], "output": ["-vcodec", "libx265"]}})
+        profiles = _load_user_ffmpeg_profiles()
+        assert "my_h265" in profiles
+        assert profiles["my_h265"]["output"] == ["-vcodec", "libx265"]
+
+    def test_malformed_json_returns_empty_and_warns(self, config_dir, caplog):
+        import logging
+
+        (config_dir / "ffmpeg-profiles.json").write_text("{ not valid json")
+        with caplog.at_level(logging.WARNING, logger="gpstitch.services.renderer"):
+            result = _load_user_ffmpeg_profiles()
+        assert result == {}
+        assert caplog.records, "Expected a warning for malformed JSON"
+
+    def test_non_object_top_level_returns_empty_and_warns(self, config_dir, caplog):
+        import logging
+
+        self._write(config_dir, ["not", "an", "object"])
+        with caplog.at_level(logging.WARNING, logger="gpstitch.services.renderer"):
+            result = _load_user_ffmpeg_profiles()
+        assert result == {}
+        assert caplog.records, "Expected a warning for non-object top-level JSON"
+
+    def test_malformed_entries_are_filtered(self, config_dir):
+        # gopro-overlay requires "input"/"output" to be lists of strings and
+        # "filter" (if present) to be a string. The empty name is reserved for
+        # the synthetic "Default" entry.
+        self._write(
+            config_dir,
+            {
+                "good": {"input": [], "output": ["-vcodec", "png"]},
+                "good_with_filter": {"input": [], "output": ["-vcodec", "png"], "filter": "[0:v][1:v]overlay"},
+                "bad_no_input": {"output": ["-vcodec", "png"]},
+                "bad_no_output": {"input": []},
+                "bad_output_type": {"input": [], "output": "not-a-list"},
+                "bad_output_item": {"input": [], "output": ["-vcodec", ["nested"]]},
+                "bad_filter_type": {"input": [], "output": ["-vcodec", "png"], "filter": 123},
+                "bad_not_dict": "nope",
+                "": {"input": [], "output": ["-vcodec", "png"]},
+            },
+        )
+        profiles = _load_user_ffmpeg_profiles()
+        assert set(profiles) == {"good", "good_with_filter"}
+
+
+class TestGetOutputExtensionForProfile:
+    """Tests for get_output_extension_for_profile (built-in + user-defined)."""
+
+    @pytest.fixture
+    def config_dir(self, tmp_path, monkeypatch):
+        from gpstitch.config import settings
+
+        monkeypatch.setattr(settings, "gopro_config_dir", tmp_path)
+        return tmp_path
+
+    def test_empty_profile_is_mp4(self, config_dir):
+        assert get_output_extension_for_profile("") == ".mp4"
+        assert get_output_extension_for_profile(None) == ".mp4"
+
+    def test_builtin_mov(self, config_dir):
+        assert get_output_extension_for_profile("mov") == ".mov"
+
+    @pytest.mark.parametrize("name", ["vp8", "vp9"])
+    def test_builtin_vpx(self, config_dir, name):
+        assert get_output_extension_for_profile(name) == ".webm"
+
+    @pytest.mark.parametrize("name", ["nvgpu", "mac", "mac_hevc", "qsv"])
+    def test_builtin_others_are_mp4(self, config_dir, name):
+        assert get_output_extension_for_profile(name) == ".mp4"
+
+    def test_unknown_profile_is_mp4(self, config_dir):
+        assert get_output_extension_for_profile("does-not-exist") == ".mp4"
+
+    def test_user_png_profile_is_mov(self, config_dir):
+        (config_dir / "ffmpeg-profiles.json").write_text(
+            json.dumps({"frames": {"input": [], "output": ["-vcodec", "png"]}})
+        )
+        assert get_output_extension_for_profile("frames") == ".mov"
+
+    def test_user_override_of_builtin_takes_precedence(self, config_dir):
+        # User redefines built-in "mov" to emit H.264 -> should resolve to .mp4
+        (config_dir / "ffmpeg-profiles.json").write_text(
+            json.dumps({"mov": {"input": [], "output": ["-vcodec", "libx264"]}})
+        )
+        assert get_output_extension_for_profile("mov") == ".mp4"
+
+    def test_non_hashable_output_item_does_not_crash(self, config_dir):
+        # A non-hashable output element (nested list) must not crash codec
+        # inference; the entry is filtered out and extension falls back to .mp4.
+        (config_dir / "ffmpeg-profiles.json").write_text(
+            json.dumps({"weird": {"input": [], "output": ["-vcodec", ["nested"]]}})
+        )
+        assert get_output_extension_for_profile("weird") == ".mp4"
+
+
+class TestGetAvailableFfmpegProfiles:
+    """Tests for get_available_ffmpeg_profiles (built-in + user-defined)."""
+
+    @pytest.fixture
+    def config_dir(self, tmp_path, monkeypatch):
+        from gpstitch.config import settings
+
+        monkeypatch.setattr(settings, "gopro_config_dir", tmp_path)
+        return tmp_path
+
+    def test_builtins_only_when_no_user_file(self, config_dir):
+        profiles = get_available_ffmpeg_profiles()
+        names = [p["name"] for p in profiles]
+        assert "" in names  # Default
+        assert "mac" in names
+        assert all(p["is_builtin"] for p in profiles)
+
+    def test_user_profiles_appended(self, config_dir):
+        (config_dir / "ffmpeg-profiles.json").write_text(
+            json.dumps({"my_h265": {"input": [], "output": ["-vcodec", "libx265"]}})
+        )
+        profiles = get_available_ffmpeg_profiles()
+        custom = [p for p in profiles if p["name"] == "my_h265"]
+        assert len(custom) == 1
+        assert custom[0]["is_builtin"] is False
+        assert custom[0]["description"] == "Custom profile: libx265"
+        assert custom[0]["display_name"] == "My H265"
+
+    def test_user_override_is_deduplicated(self, config_dir):
+        # User overrides built-in "mac" -> appears once, marked as not built-in
+        (config_dir / "ffmpeg-profiles.json").write_text(
+            json.dumps({"mac": {"input": [], "output": ["-vcodec", "libx264"]}})
+        )
+        profiles = get_available_ffmpeg_profiles()
+        mac_entries = [p for p in profiles if p["name"] == "mac"]
+        assert len(mac_entries) == 1
+        assert mac_entries[0]["is_builtin"] is False

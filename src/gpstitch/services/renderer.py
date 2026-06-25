@@ -310,26 +310,157 @@ def get_available_map_styles() -> list[dict]:
     return result
 
 
+# Explicit ffmpeg muxers (`-f <format>`) mapped to the extension they need.
+_FORMAT_CONTAINER_EXTENSIONS = {
+    "mov": ".mov",
+    "matroska": ".mkv",
+    "webm": ".webm",
+    "mp4": ".mp4",
+    "avi": ".avi",
+    "mxf": ".mxf",
+    "gif": ".gif",
+}
+
+# Video codecs whose output requires a non-default container, mapped to the
+# extension they need. Anything not listed here defaults to .mp4.
+_CODEC_CONTAINER_EXTENSIONS = {
+    "png": ".mov",  # lossless PNG frames → QuickTime (Final Cut Pro / DaVinci Resolve)
+    "vp8": ".webm",
+    "vp9": ".webm",
+    "libvpx": ".webm",
+    "libvpx-vp9": ".webm",
+    "prores": ".mov",
+    "prores_ks": ".mov",
+    "prores_aw": ".mov",
+    "dnxhd": ".mov",
+    "dnxhr": ".mov",
+    "ffv1": ".mkv",
+    "gif": ".gif",
+}
+
+
+def _arg_value(args: list, *flags: str) -> str | None:
+    """Return the value following the first occurrence of any of ``flags``.
+
+    e.g. ``_arg_value(["-vcodec", "png"], "-vcodec", "-c:v")`` → ``"png"``.
+    Returns None if no flag is present (or it has no following value).
+    """
+    for flag, value in zip(args, args[1:], strict=False):
+        if flag in flags:
+            return value
+    return None
+
+
+def _vcodec_from_output_args(output_args: list) -> str | None:
+    """Extract the video codec (``-vcodec``/``-c:v``) from ffmpeg output args."""
+    return _arg_value(output_args, "-vcodec", "-c:v")
+
+
+def _extension_for_output_args(output_args: list) -> str | None:
+    """Infer the required container extension from ffmpeg output args.
+
+    An explicit ``-f <format>`` muxer wins over codec inference; otherwise the
+    video codec (``-vcodec``/``-c:v``) decides. Returns None when the default
+    (``.mp4``) is appropriate.
+    """
+    fmt = _arg_value(output_args, "-f")
+    if fmt in _FORMAT_CONTAINER_EXTENSIONS:
+        return _FORMAT_CONTAINER_EXTENSIONS[fmt]
+    codec = _vcodec_from_output_args(output_args)
+    if codec is None:
+        return None
+    return _CODEC_CONTAINER_EXTENSIONS.get(codec)
+
+
+def _is_ffmpeg_arg_list(value) -> bool:
+    """True if value is a list of strings (a valid ffmpeg argument list).
+
+    The items become ffmpeg CLI arguments, so non-string elements would both
+    fail at render time and break codec inference (a non-hashable element such
+    as a nested list crashes the dict lookup in ``_extension_for_output_args``).
+    """
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _load_user_ffmpeg_profiles() -> dict:
+    """Load user-defined FFmpeg profiles from the gopro-overlay config dir.
+
+    Reads ``<gopro_config_dir>/ffmpeg-profiles.json`` — the same file that
+    gopro-dashboard.py uses — and returns a mapping of profile name → profile
+    dict. Returns an empty dict when the file is missing, unreadable, or
+    malformed (a warning is logged in the malformed case) so the built-in
+    profiles always remain available.
+    """
+    from gopro_overlay.config import Config
+
+    try:
+        config_file = Config(settings.gopro_config_dir).maybe("ffmpeg-profiles.json")
+    except (Exception, SystemExit) as exc:  # malformed JSON, permission errors, etc.
+        logger.warning("Could not read user FFmpeg profiles from %s: %s", settings.gopro_config_dir, exc)
+        return {}
+
+    if not config_file.exists():
+        return {}
+
+    content = config_file.content
+    if not isinstance(content, dict):
+        logger.warning("Ignoring %s: expected a JSON object of profiles", config_file.location)
+        return {}
+
+    # Keep only well-formed entries. gopro-overlay requires "input" and "output"
+    # to be lists of strings and, if present, "filter" to be a string (see
+    # FFMPEGProfiles.load_profile_content); anything else would fail at render
+    # time, so we don't surface it in the dropdown. The empty name is reserved
+    # for the synthetic "Default" entry, so a profile keyed "" is skipped.
+    return {
+        name: profile
+        for name, profile in content.items()
+        if name
+        and isinstance(profile, dict)
+        and _is_ffmpeg_arg_list(profile.get("input"))
+        and _is_ffmpeg_arg_list(profile.get("output"))
+        and isinstance(profile.get("filter", ""), str)
+    }
+
+
+def _describe_user_profile(profile: dict) -> str:
+    """Build a short, human-readable description for a user-defined profile."""
+    codec = _vcodec_from_output_args(profile.get("output", []))
+    if codec:
+        return f"Custom profile: {codec}"
+    return "Custom profile (user-defined)"
+
+
 def get_output_extension_for_profile(ffmpeg_profile: str | None) -> str:
     """Return the appropriate file extension based on the FFmpeg profile.
 
     Some profiles require specific container formats:
-    - mov (PNG codec) → .mov (QuickTime, needed for Final Cut Pro / DaVinci Resolve)
-    - vp9/vp8 (alpha channel) → .webm
+    - PNG codec (built-in ``mov``) → .mov (QuickTime, for Final Cut Pro / DaVinci Resolve)
+    - VP8/VP9 codec (built-in ``vp8``/``vp9``) → .webm
     - all others → .mp4
+
+    User-defined profiles are honoured the same way: the container is inferred
+    from their ``output`` ffmpeg args. A user profile overriding a built-in name
+    takes precedence, matching gopro-dashboard.py's resolution order.
     """
-    if ffmpeg_profile == "mov":
-        return ".mov"
-    if ffmpeg_profile in ("vp9", "vp8"):
-        return ".webm"
+    if not ffmpeg_profile:
+        return ".mp4"
+
+    from gopro_overlay.ffmpeg_profile import builtin_profiles
+
+    # User-defined profiles win over built-ins with the same name (as in gopro-overlay).
+    merged = {**builtin_profiles, **_load_user_ffmpeg_profiles()}
+    profile = merged.get(ffmpeg_profile)
+    if profile is not None:
+        return _extension_for_output_args(profile.get("output", [])) or ".mp4"
     return ".mp4"
 
 
 def get_available_ffmpeg_profiles() -> list[dict]:
-    """Get available FFmpeg encoding profiles."""
+    """Get available FFmpeg encoding profiles (built-in + user-defined)."""
     from gopro_overlay.ffmpeg_profile import builtin_profiles
 
-    # Profile descriptions
+    # Curated descriptions for the built-in profiles.
     profile_descriptions = {
         "nvgpu": "NVIDIA GPU acceleration (H.264, 25 Mbps)",
         "nnvgpu": "NVIDIA GPU with CUDA overlay (H.264, 25 Mbps)",
@@ -340,6 +471,8 @@ def get_available_ffmpeg_profiles() -> list[dict]:
         "mac": "macOS VideoToolbox H.264 (high quality)",
         "qsv": "Intel QuickSync HEVC acceleration",
     }
+
+    user_profiles = _load_user_ffmpeg_profiles()
 
     result = []
 
@@ -353,21 +486,32 @@ def get_available_ffmpeg_profiles() -> list[dict]:
         }
     )
 
-    # Add builtin profiles
+    # Add builtin profiles, skipping any overridden by a user profile of the same
+    # name (those are shown once in the user-defined section instead).
     for name in builtin_profiles:
-        display_name = name.replace("_", " ").replace("-", " ").title()
+        if name in user_profiles:
+            continue
         description = profile_descriptions.get(name, f"{name} encoding profile")
 
         result.append(
             {
                 "name": name,
-                "display_name": display_name,
+                "display_name": _format_display_name(name),
                 "description": description,
                 "is_builtin": True,
             }
         )
 
-    # TODO: Add user-defined profiles from ~/.gopro-graphics/ffmpeg-profiles.json
+    # Add user-defined profiles from <gopro_config_dir>/ffmpeg-profiles.json
+    for name, profile in user_profiles.items():
+        result.append(
+            {
+                "name": name,
+                "display_name": _format_display_name(name),
+                "description": _describe_user_profile(profile),
+                "is_builtin": False,
+            }
+        )
 
     return result
 
@@ -1797,6 +1941,12 @@ def generate_cli_command(
     # Add FFmpeg profile if specified
     if ffmpeg_profile:
         cmd_parts.append(f"--profile {shlex.quote(ffmpeg_profile)}")
+
+    # Point the render subprocess at the same gopro-overlay config dir the UI
+    # reads profiles from. Only emitted when it differs from gopro-overlay's
+    # default (~/.gopro-graphics) — otherwise the subprocess already uses it.
+    if settings.gopro_config_dir != Path.home() / ".gopro-graphics":
+        cmd_parts.append(f"--config-dir {shlex.quote(str(settings.gopro_config_dir))}")
 
     # Add GPS filter parameters
     if gps_dop_max is not None:

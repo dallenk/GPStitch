@@ -171,6 +171,11 @@ async def pre_check_batch_files(request: PreCheckRequest) -> PreCheckResponse:
     gps_files: list[GPSFileInfo] = []
     gps_issues_count = 0
 
+    # Output extension depends only on the (request-wide) profile — compute once.
+    from gpstitch.services.renderer import get_output_extension_for_profile
+
+    ext = get_output_extension_for_profile(request.ffmpeg_profile)
+
     for file_input in request.files:
         video_path = Path(file_input.video_path).expanduser().resolve()
 
@@ -185,9 +190,6 @@ async def pre_check_batch_files(request: PreCheckRequest) -> PreCheckResponse:
             continue
 
         # Check overwrite conflict
-        from gpstitch.services.renderer import get_output_extension_for_profile
-
-        ext = get_output_extension_for_profile(request.ffmpeg_profile)
         output_path = video_path.parent / f"{video_path.stem}_overlay{ext}"
         if output_path.exists():
             overwrite_conflicts.append(
@@ -551,6 +553,11 @@ async def start_batch_render(request: BatchRenderRequest, background_tasks: Back
     job_ids = []
     skipped_files = []
 
+    # Output extension depends only on the (request-wide) profile — compute once.
+    from gpstitch.services.renderer import get_output_extension_for_profile
+
+    ext = get_output_extension_for_profile(request.ffmpeg_profile)
+
     for file_input in request.files:
         video_path = Path(file_input.video_path)
 
@@ -612,9 +619,6 @@ async def start_batch_render(request: BatchRenderRequest, background_tasks: Back
             # Auto-generate output filename if not specified
             output_file = file_input.output_path
             if not output_file:
-                from gpstitch.services.renderer import get_output_extension_for_profile
-
-                ext = get_output_extension_for_profile(request.ffmpeg_profile)
                 output_file = str(video_path.parent / f"{video_path.stem}_overlay{ext}")
 
             # Calculate odo_offset when using shared GPX (not per-file override)
