@@ -1,5 +1,18 @@
 # Release Notes
 
+## Version 0.18.0 — 25 Jun 2026
+
+### 🆕 New
+
+- **User-defined FFmpeg profiles** — The FFmpeg Profile selector now lists your own encoding profiles from `~/.gopro-graphics/ffmpeg-profiles.json` (the same file `gopro-dashboard.py` reads) alongside the built-in ones, with the output container chosen automatically from the codec ([#17](https://github.com/Romancha/GPStitch/issues/17))
+- **Editable unit labels** — The Metric Unit widget gained an editable "Label / Format" field in Advanced Mode, so you can rename or localise overlay labels (e.g. ALT → Höhe, or type a literal km/h) ([#19](https://github.com/Romancha/GPStitch/issues/19))
+
+### 🐞 Fixes
+
+- Fixed the editor and Quick Mode preview ignoring an attached GPX/FIT file when the video already contained embedded GPS — the preview now uses the external track you provided, matching the actual render ([#18](https://github.com/Romancha/GPStitch/issues/18))
+
+---
+
 ## Version 0.17.0 — 14 May 2026
 
 ### 🆕 New
