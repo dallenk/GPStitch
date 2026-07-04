@@ -64,6 +64,19 @@ class PropertiesPanel {
             html += `<div class="bounds-warning">${boundsWarning}</div>`;
         }
 
+        // Name field (optional, for all widget types)
+        html += `
+            <div class="property-group">
+                <h4>Identity</h4>
+                <div class="property-row">
+                    <label for="widget-name">Name</label>
+                    <input type="text" id="widget-name" name="__name__"
+                           value="${this._escapeHtml(widget.name || '')}"
+                           placeholder="Optional identifier">
+                </div>
+            </div>
+        `;
+
         for (const [category, props] of Object.entries(groups)) {
             html += `
                 <div class="property-group">
@@ -183,7 +196,13 @@ class PropertiesPanel {
                     value = input.value;
                 }
 
-                this.state.setWidgetProperty(widget.id, propName, value);
+                if (propName === '__name__') {
+                    const sanitized = this._sanitizeName(value);
+                    input.value = sanitized;
+                    this.state.updateWidget(widget.id, { name: sanitized || null });
+                } else {
+                    this.state.setWidgetProperty(widget.id, propName, value);
+                }
             };
 
             if (input.type === 'color') {
@@ -315,6 +334,11 @@ class PropertiesPanel {
         if (issues.length === 0) return null;
 
         return `⚠️ Widget extends beyond canvas:<br>${issues.join('<br>')}`;
+    }
+
+    _sanitizeName(str) {
+        if (!str) return '';
+        return str.replace(/[^a-zA-Z0-9_]/g, '_');
     }
 
     _escapeHtml(str) {

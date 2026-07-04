@@ -16,6 +16,7 @@ class LayersPanel {
         this.state.on('layout:restored', () => this.render());
         this.state.on('widget:added', () => this.render());
         this.state.on('widget:removed', () => this.render());
+        this.state.on('widget:updated', () => this.render());
         this.state.on('selection:changed', () => this._updateSelection());
     }
 
@@ -49,7 +50,8 @@ class LayersPanel {
         const isSelected = this.state.selectedWidgets.has(widget.id);
         const metadata = this.state.widgetMetadataByType[widget.type];
         const icon = metadata?.icon || widget.type.charAt(0).toUpperCase();
-        const name = widget.name || metadata?.name || widget.type;
+        const displayName = widget.name || metadata?.name || widget.type;
+        const subtype = widget.name ? (metadata?.name || widget.type) : null;
         const description = metadata?.description || '';
 
         const classes = [
@@ -58,10 +60,17 @@ class LayersPanel {
             depth > 0 ? 'nested' : ''
         ].filter(c => c).join(' ');
 
+        const subtypeHtml = subtype
+            ? `<div class="layer-subtype">${this._escapeHtml(subtype)}</div>`
+            : '';
+
         let html = `
             <div class="${classes}" data-widget-id="${widget.id}" style="padding-left: ${depth * 16 + 8}px;" title="${this._escapeHtml(description)}">
                 <span class="layer-icon">${icon}</span>
-                <span class="layer-name">${name}</span>
+                <div class="layer-name-group">
+                    <div class="layer-name">${this._escapeHtml(displayName)}</div>
+                    ${subtypeHtml}
+                </div>
                 <div class="layer-actions">
                     <button class="layer-action" data-action="visibility" title="${widget.visible ? 'Hide' : 'Show'}">
                         ${widget.visible ? '👁' : '🚫'}
