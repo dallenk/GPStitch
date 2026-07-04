@@ -1647,6 +1647,97 @@ select {
     display: block;
 }
 
+.layer-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-3);
+    margin-bottom: var(--space-1);
+    background: var(--color-bg-input);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: var(--transition-fast);
+    font-size: var(--font-size-sm);
+}
+
+.layer-item:hover {
+    background: var(--color-bg-hover);
+}
+
+.layer-item.selected {
+    border-color: var(--color-widget-selected);
+    background: var(--color-bg-hover);
+}
+
+.layer-item.nested {
+    margin-left: var(--space-4);
+}
+
+.layer-icon {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: var(--font-size-xs);
+    font-weight: var(--font-weight-bold);
+    background: var(--color-bg-app);
+    border-radius: var(--radius-sm);
+}
+
+.layer-name-group {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    min-width: 0;
+}
+
+.layer-name {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.layer-subtype {
+    display: block;
+    font-size: 0.6rem;
+    color: var(--color-text-secondary);
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.layer-actions {
+    display: flex;
+    gap: var(--space-1);
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.layer-action {
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+    border-radius: 2px;
+    font-size: var(--font-size-xs);
+}
+
+.layer-action:hover {
+    background: var(--color-bg-app);
+    color: var(--color-text-primary);
+}
+
 /* ============================================
    CHECKBOX TOGGLE
    ============================================ */
