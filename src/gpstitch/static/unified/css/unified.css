@@ -33,6 +33,7 @@
     --color-success: #4ecdc4;
     --color-warning: #ffd166;
     --color-error: #ef476f;
+    --color-bright-green: #32cd32;
 
     /* Widget colors */
     --color-widget-bg: rgba(79, 195, 247, 0.15);
@@ -1591,19 +1592,29 @@ select {
 
 .widget-label {
     position: absolute;
-    top: -20px;
-    left: 0;
+    top: 0;
+    right: 0;
     font-size: var(--font-size-xs);
-    background: var(--color-widget-border);
-    color: var(--color-bg-app);
+    background: var(--color-warning);
+    color: var(--color-text-inverse);
     padding: 2px 6px;
     border-radius: 2px;
     white-space: nowrap;
+    z-index: 1;
+}
+
+.canvas-widget.container > .widget-label {
+    top: -20px;
+    left: 0;
+    right: auto;
+    background: var(--color-widget-border);
+    color: var(--color-bg-app);
+    z-index: 10;
 }
 
 .canvas-widget.selected .widget-label {
-    background: var(--color-widget-selected);
-    color: var(--color-bg-app);
+    background: var(--color-bright-green);
+    color: var(--color-text-inverse);
 }
 
 /* Resize Handles */
