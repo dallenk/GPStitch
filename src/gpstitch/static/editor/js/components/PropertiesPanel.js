@@ -64,7 +64,13 @@ class PropertiesPanel {
             html += `<div class="bounds-warning">${boundsWarning}</div>`;
         }
 
-        // Name field (optional, for all widget types)
+        // Name field and Parent dropdown (Identity section)
+        const namedContainers = this.state.getNamedContainers(widget.id);
+        const currentParentId = this.state.findParentId(widget.id) || '';
+        const parentOptions = namedContainers.map(c =>
+            `<option value="${this._escapeHtml(c.id)}" ${c.id === currentParentId ? 'selected' : ''}>${this._escapeHtml(c.name)} (${c.type})</option>`
+        ).join('');
+
         html += `
             <div class="property-group">
                 <h4>Identity</h4>
@@ -73,6 +79,13 @@ class PropertiesPanel {
                     <input type="text" id="widget-name" name="__name__"
                            value="${this._escapeHtml(widget.name || '')}"
                            placeholder="Optional identifier">
+                </div>
+                <div class="property-row">
+                    <label for="widget-parent">Parent</label>
+                    <select id="widget-parent" name="__parent__">
+                        <option value="" ${currentParentId === '' ? 'selected' : ''}>(none — top level)</option>
+                        ${parentOptions}
+                    </select>
                 </div>
             </div>
         `;
@@ -200,6 +213,8 @@ class PropertiesPanel {
                     const sanitized = this._sanitizeName(value);
                     input.value = sanitized;
                     this.state.updateWidget(widget.id, { name: sanitized || null });
+                } else if (propName === '__parent__') {
+                    this.state.reparentWidget(widget.id, value || null);
                 } else {
                     this.state.setWidgetProperty(widget.id, propName, value);
                 }

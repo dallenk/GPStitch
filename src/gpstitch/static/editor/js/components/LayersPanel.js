@@ -7,7 +7,10 @@ class LayersPanel {
         this.container = container;
         this.state = state;
 
+        this._dragSourceId = null;
+
         this._attachStateListeners();
+        this._attachContainerDragListeners();
         this.render();
     }
 
@@ -65,7 +68,8 @@ class LayersPanel {
             : '';
 
         let html = `
-            <div class="${classes}" data-widget-id="${widget.id}" style="padding-left: ${depth * 16 + 8}px;" title="${this._escapeHtml(description)}">
+            <div class="${classes}" data-widget-id="${widget.id}" draggable="true" style="padding-left: ${depth * 16 + 8}px;" title="${this._escapeHtml(description)}">
+                <span class="layer-drag-handle" title="Drag to reorder">⠿</span>
                 <span class="layer-icon">${icon}</span>
                 <div class="layer-name-group">
                     <div class="layer-name">${this._escapeHtml(displayName)}</div>
@@ -100,6 +104,7 @@ class LayersPanel {
             // Click to select
             item.addEventListener('click', (e) => {
                 if (e.target.classList.contains('layer-action')) return;
+                if (e.target.classList.contains('layer-drag-handle')) return;
                 this.state.select(widgetId, e.shiftKey);
             });
 
@@ -122,6 +127,47 @@ class LayersPanel {
                     }
                 });
             });
+
+            // Drag-and-drop — reordering (dragstart/dragend per item)
+            item.addEventListener('dragstart', (e) => {
+                this._dragSourceId = widgetId;
+                item.classList.add('dragging');
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', widgetId);
+            });
+
+            item.addEventListener('dragend', () => {
+                this._dragSourceId = null;
+                item.classList.remove('dragging');
+            });
+        });
+
+    }
+
+    _attachContainerDragListeners() {
+        this.container.addEventListener('dragover', (e) => {
+            if (!this._dragSourceId) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+        });
+
+        this.container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const sourceId = this._dragSourceId;
+            if (!sourceId) return;
+
+            const targetItem = e.target.closest('.layer-item');
+            if (!targetItem || targetItem.dataset.widgetId === sourceId) return;
+
+            const targetId = targetItem.dataset.widgetId;
+            const rect = targetItem.getBoundingClientRect();
+            const isBefore = e.clientY < rect.top + rect.height / 2;
+
+            // The layers panel renders in REVERSE order (top-of-stack first).
+            // "before" visually means "after" in the real array (higher index = drawn later = on top).
+            // "after" visually means "before" in the real array.
+            const position = isBefore ? 'after' : 'before';
+            this.state.reorderWidget(sourceId, targetId, position);
         });
     }
 

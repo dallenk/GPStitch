@@ -675,6 +675,30 @@ body {
     color: var(--text-primary);
 }
 
+.layer-drag-handle {
+    width: 14px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--text-secondary);
+    opacity: 0.5;
+    cursor: grab;
+    font-size: 0.65rem;
+    letter-spacing: -1px;
+    line-height: 1;
+    user-select: none;
+}
+
+.layer-drag-handle:active {
+    cursor: grabbing;
+}
+
+.layer-item.dragging {
+    opacity: 0.4;
+}
+
 /* Status Bar */
 .status-bar {
     display: flex;
