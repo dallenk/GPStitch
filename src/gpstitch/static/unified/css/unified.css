@@ -1601,6 +1601,7 @@ select {
     border-radius: 2px;
     white-space: nowrap;
     z-index: 1;
+    opacity: 0.5;
 }
 
 .canvas-widget.container > .widget-label {
@@ -1615,6 +1616,7 @@ select {
 .canvas-widget.selected .widget-label {
     background: var(--color-bright-green);
     color: var(--color-text-inverse);
+    opacity: 1;
 }
 
 /* Resize Handles */
