@@ -495,7 +495,7 @@ class EditorState {
     _collectNamedContainers(widgets, excludeId, results) {
         for (const widget of widgets) {
             if (widget.id === excludeId) continue;
-            if ((widget.type === 'composite' || widget.type === 'translate') && widget.name) {
+            if ((widget.type === 'composite' || widget.type === 'translate' || widget.type === 'frame') && widget.name) {
                 results.push({ id: widget.id, name: widget.name, type: widget.type });
             }
             if (widget.children && widget.children.length > 0) {
